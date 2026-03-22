@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ExportEngine.Tests/ExportEngine.Tests.csproj" />
+    <Project Path="src/ExportEngine/ExportEngine.csproj" />
+  </Folder>
+</Solution>
