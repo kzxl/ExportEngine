@@ -5,7 +5,8 @@ using System.Text;
 namespace ExportEngine
 {
     /// <summary>
-    /// CSV export implementation.
+    /// High-performance RFC 4180 streaming CSV exporter.
+    /// Operates directly on streams without intermediate string allocations.
     /// </summary>
     internal static class CsvExporter
     {
@@ -15,7 +16,7 @@ namespace ExportEngine
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
 
-            using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write))
+            using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 65536))
             {
                 Export(builder, fs, delimiter);
             }
@@ -23,13 +24,13 @@ namespace ExportEngine
 
         public static void Export<T>(ExportBuilder<T> builder, Stream stream, string delimiter) where T : class
         {
-            using (var writer = new StreamWriter(stream, new UTF8Encoding(true), 1024, leaveOpen: true))
+            using (var writer = new StreamWriter(stream, new UTF8Encoding(true), 65536, leaveOpen: true))
             {
                 // Header row
                 for (int i = 0; i < builder.Columns.Count; i++)
                 {
                     if (i > 0) writer.Write(delimiter);
-                    writer.Write(EscapeCsv(builder.Columns[i].Header, delimiter));
+                    WriteEscapedField(writer, builder.Columns[i].Header, delimiter);
                 }
                 writer.WriteLine();
 
@@ -40,7 +41,8 @@ namespace ExportEngine
                     {
                         if (i > 0) writer.Write(delimiter);
                         var value = builder.Columns[i].Selector(item);
-                        writer.Write(EscapeCsv(FormatValue(value, builder.Columns[i].Format), delimiter));
+                        var str = FormatValue(value, builder.Columns[i].Format);
+                        WriteEscapedField(writer, str, delimiter);
                     }
                     writer.WriteLine();
                 }
@@ -55,18 +57,42 @@ namespace ExportEngine
             return value.ToString();
         }
 
-        private static string EscapeCsv(string value, string delimiter)
+        private static void WriteEscapedField(TextWriter writer, string value, string delimiter)
         {
-            if (string.IsNullOrEmpty(value)) return "";
+            if (string.IsNullOrEmpty(value)) return;
 
-            bool needsQuoting = value.Contains(delimiter)
-                || value.Contains("\"")
-                || value.Contains("\n")
-                || value.Contains("\r");
+            bool needsQuoting = value.IndexOf(delimiter, StringComparison.Ordinal) >= 0
+                || value.IndexOf('"') >= 0
+                || value.IndexOf('\n') >= 0
+                || value.IndexOf('\r') >= 0;
 
-            if (!needsQuoting) return value;
+            if (!needsQuoting)
+            {
+                writer.Write(value);
+                return;
+            }
 
-            return "\"" + value.Replace("\"", "\"\"") + "\"";
+            writer.Write('"');
+            int lastIndex = 0;
+            for (int i = 0; i < value.Length; i++)
+            {
+                if (value[i] == '"')
+                {
+                    if (i > lastIndex)
+                    {
+                        writer.Write(value.Substring(lastIndex, i - lastIndex));
+                    }
+                    writer.Write("\"\"");
+                    lastIndex = i + 1;
+                }
+            }
+
+            if (lastIndex < value.Length)
+            {
+                writer.Write(value.Substring(lastIndex));
+            }
+
+            writer.Write('"');
         }
     }
 }

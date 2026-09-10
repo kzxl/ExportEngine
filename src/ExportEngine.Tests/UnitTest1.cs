@@ -74,6 +74,22 @@ namespace ExportEngine.Tests
         }
 
         [Fact]
+        public void ToCsvString_Rfc4180_EscapesEmbeddedQuotesAndNewlines()
+        {
+            var data = new List<Product>
+            {
+                new Product { Id = 1, Name = "Widget \"Special\" \n Edition", Price = 15.0m }
+            };
+
+            var csv = Export.From(data)
+                .Column("Name", x => x.Name)
+                .ToCsvString();
+
+            // Should escape internal quotes as "" and wrap whole field in quotes
+            Assert.Contains("\"Widget \"\"Special\"\" \n Edition\"", csv);
+        }
+
+        [Fact]
         public void ToCsv_WritesToFile()
         {
             var path = Path.Combine(Path.GetTempPath(), $"test_{Guid.NewGuid()}.csv");
